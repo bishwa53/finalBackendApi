@@ -5,7 +5,7 @@ const knex = Knex(knexOptions);
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 
-function getAllUsers(req,res){
+function getAllTeacher(req,res){
     knex
     .select()
     .table('teachers')
@@ -47,7 +47,6 @@ function registerTeacher(req,res){
 }
 
 function registerStudent(req,res){
-
     //hash password
     const hashedPassword = bcrypt.hashSync(req.body.password, 10)
     // required db values
@@ -56,13 +55,13 @@ function registerStudent(req,res){
         lastName: req.body.lastName,
         contactNumber: req.body.contactNumber,
         address: req.body.address,
-        class: req.body.class,
         username: req.body.username,
+        class: req.body.class,
         password: hashedPassword
     };
 
     //add to db
-    knex('students')
+    knex('student')
     .insert(values)
     .then(
         ()=>{
@@ -77,12 +76,12 @@ function registerStudent(req,res){
 function getAllStudent(req,res){
     knex
     .select()
-    .table('students')
+    .table('student')
     .then((data)=>{
         res.json(data)
     })
     .catch(error => {
-        res.json({"fail":"Error occured!"})
+        res.json("Error occured!")
     })
 }
 
@@ -98,27 +97,94 @@ function getAttendance(req,res){
         res.json({"fail":"Error occured!"})
     })
 }
+var today = new Date();
+var dd = String(today.getDate()).padStart(2, '0');
+var mm = String(today.getMonth() + 1).padStart(2, '0');
+var yyyy = today.getFullYear();
+today = yyyy +"-"+mm+"-"+dd;
 
-function addAttendance(req,res){
-   
+function getTodayAttendance(req,res){
+    knex
+    .table('student')
+    .join('attendance', 'student.id', '=', 'attendance.studentId')
+    .where('attendance.attDate',today)
+    .select('student.id','student.firstName','student.lastName','attendance.status')
+    .then((data)=>{
+        res.json(data)
+    })
+}
+
+function getTodayAttendanceOfStudent(req,res){
+    knex
+    .table('student')
+    .join('attendance', 'student.id', '=', 'attendance.studentId')
+    .where({'attendance.attDate':today,'student.id':req.params.studentId})
+    .select('student.id','student.firstName','student.lastName','attendance.status')
+    .then((data)=>{
+        res.json(data)
+    })
+}
+
+function getInfo(req,res){
+    if( !req.params.token ) res.json({success:false,status:"Unauthenticated access."})
+    else{
+        const payload = jwt.verify(req.params.token, 'key');
+        knex
+        .select()
+        .table(req.params.loginType)
+        .where('username',payload.username)
+        .then((data)=>{
+            res.json({
+                success:true,
+                status : "user data response",
+                data : data[0]
+            })
+        })
+    }
+
+}
+
+function addUpdateAttendance(req,res){
+    
+
     // required db values
     var values = {
-        class: req.body.class,
-        subject: req.body.subject,
-        datetime: req.body.datetime
+        status: req.body.status,
+        studentId: req.body.studentId,
+        attDate: today
     };
 
     //add to db
     knex('attendance')
-    .insert(values)
-    .then(
-        ()=>{
-            res.json({'status':'attendance added'})
+    .select('id')
+    .where({attDate:today,studentId:req.body.studentId})
+    .then(data=>{
+        if(data.length == 1){
+            knex('attendance')
+            .update('status',values.status)
+            .where('id',data[0].id)
+            .then(
+                ()=>{
+                    res.json('attendance updated')
+                }
+            )
+            .catch(error => {
+                    res.json('error')
+            })
+        }else{
+            knex('attendance')
+            .insert(values)
+            .then(
+                ()=>{
+                    res.json('attendance added')
+                }
+            )
+            .catch(error => {
+                    res.json('error')
+            })
         }
-    )
-    .catch(error => {
-            res.json({'status':'error'})
     })
+    
 }
 
 // login
@@ -127,8 +193,8 @@ function login(req,res){
     const username = req.body.username;
     const passwordFromJSON = req.body.password;
     const loginType = req.params.loginType;
-    const table = "teachers";
-    if(loginType == "student" ) table = "students";
+    var table = "teachers";
+    if(loginType == "student" ) table = "student";
 
     knex
     .table(table)
@@ -152,23 +218,101 @@ function login(req,res){
                     }
                 )
             } else {
-                res.json("Authentication denied")
+                res.json({
+                    status: 'fail',
+                    message:"Username or paswword is wrong"
+                })
             }
         }
         
     })
     .catch(error => {
-        res.json("error")
+        res.json({
+            status: 'fail',
+            message:"error"
+        })
     })
+}
+
+function loginAdmin(req,res){
+    const adminUsername = "admin";
+    const adminPassword = "admin";
+
+    if( req.body.username == adminUsername && req.body.password == adminPassword ){
+        res.json({message:'ok'})
+    }else{
+        res.json({message:'Invalid username or password.'})
+    }
+}
+
+
+function deleteTeacher(req,res){
+    knex('teachers')
+    .delete()
+    .where('id',req.params.id)
+    .then(data=>{
+        res.end("Teacher deleted")
+    })
+    .catch(er=>{
+        res.end("error")
+    })
+}
+
+function deleteStudent(req,res){
+    knex('student')
+    .delete()
+    .where('id',req.params.id)
+    .then(data=>{
+        res.end("Student deleted")
+    })
+    .catch(er=>{
+        res.end("error")
+    })
+}
+
+function editTeacher(req,res){
+    knex('teachers')
+    .where({ id: req.params.id })
+    .update( req.body.colName , req.body.colValue)
+    .then(
+        ()=>{
+            res.end("Teacher has been updated")
+        }
+    )
+    .catch(er=>{
+        res.end('error')
+    })  
+}
+
+function editStudent(req,res){
+    knex('student')
+    .where({ id: req.params.id })
+    .update( req.body.colName , req.body.colValue)
+    .then(
+        ()=>{
+            res.end("Student has been updated")
+        }
+    )
+    .catch(er=>{
+        res.end('error')
+    })  
 }
 
 
 module.exports = {
     registerTeacher : registerTeacher,
-    getAllUsers : getAllUsers,
+    getAllTeacher : getAllTeacher,
     registerStudent : registerStudent,
     getAllStudent : getAllStudent,
-    addAttendance : addAttendance,
     getAttendance : getAttendance,
-    login:login
+    login:login,
+    loginAdmin:loginAdmin,
+    deleteTeacher : deleteTeacher,
+    deleteStudent : deleteStudent,
+    editTeacher:editTeacher,
+    editStudent:editStudent,
+    addUpdateAttendance:addUpdateAttendance,
+    getTodayAttendance:getTodayAttendance,
+    getTodayAttendanceOfStudent:getTodayAttendanceOfStudent,
+    getInfo:getInfo
 }
